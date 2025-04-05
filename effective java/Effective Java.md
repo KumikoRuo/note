@@ -43,47 +43,486 @@ public static Boolean valueOf(boolean b) {
    1. 可以先将实例构建好，并放入缓存中。每次调用静态工厂方法时，直接返回缓存中的实例即可。这样就可以避免创建实例的成本。
    2. 所返回的派生类可以随着参数而变化，例如 EnumSet 的静态工厂方法在 OpenJDK 中的实现。
    3. 单例与多例模式
-   4. 可以在运行期动态加载类，这是 SPF 的基础
+   4. 可以在运行期通过反射技术来动态加载类
 
-缺点：
 
-- 如果不提供 public or protected 的构造器，那么其派生类就不能被实例化
 
-- 很难发现静态工厂方法，但是可以通过惯用名称来弥补这一缺点
+缺点就是很难发现静态工厂方法，但是可以通过惯用名称来弥补这一缺点
 
-  - from：类型转换方法
+- from：类型转换方法
 
-    ~~~java
-    Date date = Date.from(18502105L);
-    ~~~
+  ~~~java
+  Date date = Date.from(18502105L);
+  ~~~
 
-  - getType/newType/type：类型转换方法，其中 type 为工厂方法所返回的类型
+- valueOf：类似 from，类型转换方法
 
-    ~~~java
-    Fi1eStore fs = Fi1es.getFi1eStore(path);
-    BufferedReader br = Fi1es.newufferedReader(path);
-    List<Comp1aint> 1itany = Col1ections.1ist(1egacyLitany);
-    ~~~
+- getType/newType/type：类型转换方法，其中 type 为工厂方法所返回的类型
 
-  - of：聚合方法
+  ~~~java
+  Fi1eStore fs = Fi1es.getFi1eStore(path);
+  BufferedReader br = Fi1es.newufferedReader(path);
+  List<Comp1aint> litany = Col1ections.list(1egacyLitany);
+  ~~~
 
-    ~~~java
-    Set<Rank> faceCards = EnumSet.of(JACK, QUEEN, KING);
-    ~~~
+- of：聚合方法
 
-  - valueOf：类似 from，类型转换方法
+  ~~~java
+  Set<Rank> faceCards = EnumSet.of(JACK, QUEEN, KING);
+  ~~~
 
-  - instance/getInstance
+- instance/getInstance
 
-    ~~~java
-    Stackwalker 1uke -stackwa1ker.9etTnstance(options);
-    ~~~
+  ~~~java
+  Stackwalker luke -stackwa1ker.getTnstance(options);
+  ~~~
 
-  - create/newInstance：与 instance 类似，但是确保每次都返回一个新的实例
+- create/newInstance：与 instance 类似，但是确保每次都返回一个新的实例
 
+
+
+### 遇到多个构造器参数时要考虑使用 Builder
+
+在 Java 中，静态工厂和构造器都无法很好地应对有着大量可选参数的场景。
+
+> JS、Dart 等编程语言提供命名参数的语法来应对这种场景。
+
+
+
+一种解决方案是使用 telescoping constructor （伸缩式构造器）模式：
+
+```java
+public class NutritionFacts {
+    private final int servingSize; // (mL) required
+    private final int servings; // (per container) required
+    private final int calories; // (per serving) optional
+    private final int fat; // (g/serving) optional
+    private final int sodium; // (mg/serving) optional
+    private final int carbohydrate; // (g/serving) optional
     
+    public NutritionFacts(int servingSize, int servings) {
+        this(servingSize, servings, 0);
+    }
+    
+    public NutritionFacts(int servingSize, int servings, int calories) {
+        this(servingSize, servings, calories, 0);
+    }
+    
+    public NutritionFacts(int servingSize, int servings,int calories, int fat) {
+        this(servingSize, servings, calories, fat, 0);
+    }
+    
+    public NutritionFacts(int servingSize, int servings,int calories, int fat, int sodium) {
+        this(servingSize, servings, calories, fat, sodium, 0);
+    }
+    
+    public NutritionFacts(int servingSize, int servings,int calories, int fat, int sodium, int carbohydrate) {
+        this.servingSize = servingSize;
+        this.servings = servings;
+        this.calories = calories;
+        this.fat = fat;
+        this.sodium = sodium;
+        this.carbohydrate = carbohydrate;
+    }
+}
+```
 
-### 遇到多个构造器参数时要考虑使用构建器
+该方案的缺点：
+
+- 若我们只想设置 fat 参数，那么还得设置一些不必要的参数：
+
+  ```java
+  NutritionFacts cocaCola = new NutritionFacts(240, 8, 100, 0, 35, 27);
+  ```
+
+- 可读性、易用性很差，这就导致在调用时很容易犯错，例如混淆参数顺序。
+
+
+
+我们还有 JavaBeans 方案：
+
+```java
+public class NutritionFacts {
+    // Parameters initialized to default values (if any)
+    private int servingSize = -1; // Required; no default value
+    private int servings = -1; // Required; no default value
+    private int calories = 0;
+    private int fat = 0;
+    private int sodium = 0;
+    private int carbohydrate = 0;
+    
+    public NutritionFacts(int servingSize, int servings) {
+        // ...
+    }
+    // Setters
+}
+```
+
+```java
+NutritionFacts cocaCola = new NutritionFacts(-1, -1);
+cocaCola.setCalories(100);
+cocaCola.setSodium(35);
+cocaCola.setCarbohydrate(27);
+```
+
+这种方案也有缺点：
+
+1. 不同于构造器这种原子化 initialization ，该方案通过调用多个 setter 方法来分步构建对象。在此期间，JavaBeans 或违反参数间的依赖和约束关系（不一致性），若此时其他代码误用该未初始化完成的对象，将引发难以追踪的 Bug。
+2. setter 无法初始化 final 成员变量，而且不可变对象要求禁止暴露修改状态的 setter ，最终 JavaBeans 无法设计为不可变的（immutable）。
+
+
+
+建议使用 Builder 方案，它完美地解决了上述所有痛点
+
+```java
+public class ResourcePoolConfig {
+    private String name;
+    private int maxTotal;
+    private int maxIdle;
+    private int minIdle;
+
+    private ResourcePoolConfig(Builder builder) {
+        this.name = builder.name;
+        this.maxTotal = builder.maxTotal;
+        this.maxIdle = builder.maxIdle;
+        this.minIdle = builder.minIdle;
+    }
+    //...省略getter方法...
+    
+    public static class Builder {
+        private String name;
+        private int maxTotal = 8;
+        private int maxIdle = 8;
+        private int minIdle = 0;
+
+        public ResourcePoolConfig build() {
+            // 校验逻辑放到这里来做，包括必填项校验、依赖关系校验、约束条件校验等
+            if (StringUtils.isBlank(name)) {
+                throw new IllegalArgumentException("...");
+            }
+            if (maxIdle > maxTotal) {
+                throw new IllegalArgumentException("...");
+            }
+            if (minIdle > maxTotal || minIdle > maxIdle) {
+                throw new IllegalArgumentException("...");
+            }
+            
+            return new ResourcePoolConfig(this);
+        }
+
+        public Builder setName(String name) {
+            this.name = name;
+            return this;
+        }
+
+        public Builder setMaxTotal(int maxTotal) {
+            this.maxTotal = maxTotal;
+            return this;
+        }
+
+        public Builder setMaxIdle(int maxIdle) {
+            this.maxIdle = maxIdle;
+            return this;
+        }
+
+        public Builder setMinIdle(int minIdle) {
+            this.minIdle = minIdle;
+            return this;
+        }
+    }
+}
+```
+
+而且 Builder 模式也可以支持类层次结构：
+
+```java
+public abstract class Pizza {
+    public enum Topping {HAM, MUSHROOM, ONION, PEPPER, SAUSAGE}
+    final Set<Topping> toppings;
+    
+    abstract static class Builder<T extends Builder<T>> {
+        EnumSet<Topping> toppings = EnumSet.noneOf(Topping.class);
+        
+        public T addTopping(Topping topping) {
+            toppings.add(Objects.requireNonNull(topping));
+            return self();
+        }
+        
+        abstract Pizza build();
+        
+        // Subclasses must override this method to return "this"
+        protected abstract T self();
+    }
+    
+    Pizza(Builder<?> builder) {
+        toppings = builder.toppings.clone(); // See Item 50
+    }
+}
+```
+
+```java
+public class Calzone extends Pizza {
+    private final boolean sauceInside;
+    public static class Builder extends Pizza.Builder<Builder> {
+        private boolean sauceInside = false; // Default
+        
+        public Builder sauceInside() {
+            sauceInside = true;
+            return this;
+        }
+        
+        // 协变返回类型
+        @Override public Calzone build() {
+            return new Calzone(this);
+        }
+        
+        @Override protected Builder self() {
+            return this;
+        }
+    }
+    
+    private Calzone(Builder builder) {
+        super(builder);
+        sauceInside = builder.sauceInside;
+    }
+}
+```
+
+### 用私有构造器或者枚举类型强化 Singleton 属性
+
+单例的两种经典实现：
+
+```java
+public class Elvis {
+    public static final Elvis INSTANCE = new Elvis();
+    private Elvis() {}
+}
+```
+
+```java
+public class Elvis {
+    private static final Elvis INSTANCE = new Elvis();
+    private Elvis() {}
+    public getInstance() {
+        return this.INSTANCE;
+    }
+}
+```
+
+通过静态工厂来实现单例的好处就是提供了灵活性：
+
+1. `Elvis::getInstace()` 可以作为 `Supplier<Elvis>` 用在函数式编程中
+2. 在保持公有 API 不变的前提下，可以修改其内部实现，例如支持惰性加载、保证在线程仅有一个单例实例等等
+
+
+
+在序列化时，为了保证 Singleton 是 transient 的，务必要实现 readReslove 方法
+
+```java
+public class Singleton implements Serializable { 
+    private Object readResolve() {  
+        return this.INSTANCE; 
+    }  
+}
+```
+
+因为枚举序列化是由 JVM 保证的，所以我们可以通过枚举类型来实现单例，这样就无需考虑序列化问题了
+
+```java
+enum EnumSingleton {
+    INSTANCE
+}
+```
+
+
+
+### 通过私有构造器强化不可实例化的能力
+
+```java
+public class UtilityClass {
+    // Suppress default constructor for noninstantiability
+    private UtilityClass() {
+        // 避免反射调用构造器
+        throw new AssertionError();
+    }
+}
+```
+
+由于所有的构造器都必须（隐式）调用基类的构造器，这种方式使得其不能被派生。
+
+### 先考虑依赖注人来引用资源
+
+避免使用静态工具类或单例模式来管理所依赖的资源，例如：
+
+```java
+public class SpellChecker {
+    private static final Lexicon dictionary = ...;
+    public static boolean isValid(String word) { ... }
+    public static List<String> suggestions(String typo) { ... }
+}
+```
+
+```java
+public class SpellChecker {
+    private final Lexicon dictionary = ...;
+    
+    private SpellChecker(...) {
+        this.dictionary = ...
+    }
+    public static INSTANCE = new SpellChecker(...);
+
+    public boolean isValid(String word) { ... }
+    public List<String> suggestions(String typo) { ... }
+}
+```
+
+这样做的缺点是：
+
+- 可测试性差，难以 Mock 掉所依赖的资源
+- 所依赖的资源在类加载时就被构建，难以在不同场景来引用不同的资源
+
+建议使用依赖注入技术，通过构造器来参数化不同的资源：
+
+```java
+public class SpellChecker {
+    private final Lexicon dictionary;
+    public SpellChecker(Lexicon dictionary) {
+        this.dictionary = Objects.requireNonNull(dictionary);
+    }
+
+    public boolean isValid(String word) { ... }
+    public List<String> suggestions(String typo) { ... }
+}
+```
+
+### 避免创建不必要的对象
+
+最好能复用实例，而不是在每次需要时都创建一个新的，下面来看几个例子：
+
+- 字符串：
+  ```java
+  String s = new String("bikini")
+  ```
+
+  上述代码每次 new 都会创建一个新的 bikini 字符串实例，建议复用字符串常量池中的对象：
+
+  ```java
+  String s = "bikini";
+  ```
+
+- Pattern：
+
+  ```java
+  static boolean isRomanNumeral(String s) {
+      return s.matches("^(?=.)M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$";
+  }
+  ```
+  
+  这个 matches 方法每次都会在内部为正则表达式创建 Pattern 实例，而其创建成本很高，因为需要将正则表达式编译为一个 FSM。最好将 Pattern 实例缓存起来并复用
+  
+  ```java
+  public class RomanNumerals {
+      private static final Pattern ROMAN = Pattern.compile(
+          "^(?=.)M*(C[MD]|D?C{0,3})"
+          + "(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$");
+      static boolean isRomanNumeral(String s) {
+          return ROMAN.matcher(s).matches();
+      }
+  }
+  ```
+  
+- Map 的 keySet 方法，每次调用都返回同一个 keys 的 Set 视图实例。
+
+- 自动装箱：尽量避免隐式自动装箱与拆箱。
+
+  ```java
+  Long sum = 0L;
+  for (long i = 0; i <= Integer.MAX_VALUE; i++) {
+      sum += i;
+  }
+  return sum;
+  ```
+
+  程序在 for 循环内构造了约 2^31 个多余的 Long 实例，严重损耗性能。
+
+
+
+不建议实现轻量级对象池来复用小对象，因为：
+
+1. 实现对象池使得代码实现复杂度增加
+2. 对于小对象来说，现代 JVM 都能够很好地应对它们的创建与销毁。其 GC 性能能够很轻松超过对象池的
+
+
+
+### 消除过期的对象引用
+
+下面我们来看一个例子：
+
+```java
+// Can you spot the "memory leak"?
+public class Stack {
+    private Object[] elements;
+    private int size = 0;
+    private static final int DEFAULT_INITIAL_CAPACITY = 16;
+
+    public Stack() {
+        elements = new Object[DEFAULT_INITIAL_CAPACITY];
+    }
+
+    public void push(Object e) {
+        ensureCapacity();
+        elements[size++] = e;
+    }
+    public Object pop() {
+        if (size == 0)
+            throw new EmptyStackException();
+        return elements[--size];
+    }
+    /**
+    * Ensure space for at least one more element, roughly
+    * doubling the capacity each time the array needs to grow.
+    */
+    private void ensureCapacity() {
+        if (elements.length == size)
+            elements = Arrays.copyOf(elements, 2 * size + 1);
+    }
+}
+```
+
+当栈先增长再收缩后，即使元素已经 pop 出去，但内部数组仍持有该元素的引用，导致 GC 无法回收，从而内存泄漏。解决方法很简单，就是清空对象引用（赋值 null）：
+
+```java
+public Object pop() {
+    if (size == 0)
+        throw new EmptyStackException();
+    Object result = elements[--size];
+    elements[size] = null; // Eliminate obsolete reference
+    return result;
+}
+```
+
+清空对象引用应是一种例外而不是规范，当我们自己手动管理内存时，就要警惕这种内存泄漏问题了。
+
+此外，对于长期驻留内存的静态 Map 也有类似的内存泄漏和资源堆积耗尽的问题，建议采用以下防护措施：
+
+1. 设置大小上限
+
+   ```java
+   if (map.size() > UPPER_SIZE) {
+       throw new Exception("deny to put element to map");
+   }
+   map.put(key, value);
+   ```
+
+2. 老化机制（后台线程定时清理）
+
+3. 使用 WeakHashMap
+
+
+
+### 避免使用 finalizer 方法和 cleaner 方法
+
+
 
 ## 通用方法
 
